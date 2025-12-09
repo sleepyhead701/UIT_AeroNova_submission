@@ -1,0 +1,10 @@
+requests==2.31.0
+pandas==2.0.3
+numpy==1.24.4
+tokenizers==0.13.3
+transformers==4.30.2
+sentence-transformers==2.2.2
+chromadb==0.4.22
+tqdm==4.66.1
+# PyTorch giữ nguyên
+torch==2.1.2 --index-url https://download.pytorch.org/whl/cu121
