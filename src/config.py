@@ -25,6 +25,9 @@ API_CONFIG = {
 }
 
 
-INPUT_PATH = "/data/private_test.json" 
-OUTPUT_PATH = "/output/submission.csv"
-DB_PATH = "/code/chroma_db" 
+#INPUT_PATH = "/data/private_test.json" 
+#OUTPUT_PATH = "/output/submission.csv"
+#DB_PATH = "/code/chroma_db" 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+INPUT_PATH = os.path.join(BASE_DIR, "data", "val.json") 
+OUTPUT_PATH = os.path.join(BASE_DIR, "output", "submission_val.csv")

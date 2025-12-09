@@ -5,6 +5,7 @@ from .utils import clean_text
 class Solver:
     def __init__(self, client):
         self.client = client
+    
 
     def get_valid_labels(self, choices):
         """
@@ -143,3 +144,88 @@ Các lựa chọn:
         
         # Nếu Small cũng hỏng (hoặc hết quota cả 2) -> Chọn bừa A
         return "A"
+    def solve_safety_local(self, question, choices):
+        """
+        Phiên bản rút gọn của solve_safety, chỉ trả về đáp án nếu tìm thấy từ khóa từ chối.
+        Không gọi API (để dùng trong vòng lặp lọc trước khi batching).
+        """
+        refusal_keywords = [
+            "tôi không thể", "không thể trả lời", "từ chối", 
+            "vi phạm pháp luật", "không được phép", "ngoài phạm vi",
+            "tôi không thể chia sẻ", "tôi từ chối"
+        ]
+        
+        for i, choice in enumerate(choices):
+            clean_c = str(choice).lower()
+            for kw in refusal_keywords:
+                if kw in clean_c:
+                    return chr(65 + i)
+        return None # Trả về None để biết là cần đẩy vào Batch xử lý bằng AI
+
+    def format_batch_prompt(self, batch_questions):
+        """
+        Tạo prompt chứa nhiều câu hỏi cùng lúc.
+        """
+        prompt = "Hãy trả lời danh sách các câu hỏi trắc nghiệm sau đây.\n"
+        prompt += "Yêu cầu: Trả về kết quả dưới dạng JSON Object, với key là ID câu hỏi (ví dụ 'q1') và value là chữ cái đáp án đúng (A, B, C...).\n"
+        prompt += "Ví dụ format: {\"test_001\": \"A\", \"test_002\": \"C\"}\n\n"
+        prompt += "DANH SÁCH CÂU HỎI:\n"
+
+        for q in batch_questions:
+            # Tận dụng hàm format_choices cũ
+            choices_str = self.format_choices(q['choices'])
+            prompt += f"--- ID: {q['qid']} ---\n"
+            prompt += f"Câu hỏi: {q['question']}\n"
+            prompt += f"Lựa chọn:\n{choices_str}\n\n"
+        
+        prompt += "HẾT.\nTuyệt đối chỉ trả về JSON đúng định dạng, không giải thích gì thêm."
+        return prompt
+
+    def parse_batch_response(self, response_text, batch_qids):
+        """
+        Phân tích JSON từ câu trả lời batch của model.
+        Nếu JSON lỗi, dùng Regex để cứu vớt từng câu.
+        """
+        results = {}
+        if not response_text:
+            return {qid: "A" for qid in batch_qids} # Fallback nếu API lỗi
+
+        # 1. Thử Parse JSON chuẩn
+        try:
+            match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+                data = json.loads(json_str)
+                for k, v in data.items():
+                    # Lấy chữ cái đầu tiên của value (A, B, C...) và Upper
+                    results[str(k)] = str(v).strip().upper()[0] 
+        except:
+            print(f"   [Batch Parse Warning] JSON failed. Switching to Regex fallback.")
+        
+        # 2. Regex Fallback (Nếu JSON lỗi hoặc thiếu câu hỏi)
+        # Tìm pattern: "qid": "A" hoặc qid: A
+        for qid in batch_qids:
+            if qid not in results:
+                # Regex tìm ID cụ thể trong mớ hỗn độn
+                pattern = rf"[\"']?{re.escape(qid)}[\"']?\s*[:=]\s*[\"']?([A-J])[\"']?"
+                m = re.search(pattern, response_text, re.IGNORECASE)
+                if m:
+                    results[qid] = m.group(1).upper()
+                else:
+                    results[qid] = "A" # Không tìm thấy thì đành chọn A
+
+        return results
+
+    def solve_batch(self, batch_questions, model_type="small"):
+        """
+        Xử lý nguyên một lô câu hỏi.
+        """
+        batch_qids = [q['qid'] for q in batch_questions]
+        prompt = self.format_batch_prompt(batch_questions)
+        
+        messages = [{"role": "user", "content": prompt}]
+        
+        # Gọi API với max_tokens lớn để chứa đủ JSON trả về
+        response_text = self.client.call_chat(model_type, messages, temperature=0.1, max_tokens=4096)
+        
+        return self.parse_batch_response(response_text, batch_qids)
