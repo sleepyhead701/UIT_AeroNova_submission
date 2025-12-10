@@ -11,8 +11,8 @@ from src.config import INPUT_PATH, OUTPUT_PATH
 
 # --- CẤU HÌNH BATCH SIZE TỐI ƯU ---
 # Small (32k context) chịu được batch lớn, Large (22k) batch vừa phải
-BATCH_SIZE_SMALL = 30 
-BATCH_SIZE_LARGE = 15
+BATCH_SIZE_SMALL = 24
+BATCH_SIZE_LARGE = 13
 
 def main():
     print("=== STARTING HYBRID BATCH PIPELINE ===")
@@ -49,9 +49,12 @@ def main():
         try:
             df_done = pd.read_csv(OUTPUT_PATH)
             if 'qid' in df_done.columns and 'answer' in df_done.columns:
-                results = df_done.to_dict('records')
+                valid_results = df_done[df_done['answer'] != 'A']
+                
+                results = valid_results.to_dict('records')
                 processed_qids = set(str(r['qid']) for r in results)
-                print(f"-> Found checkpoint. Resuming from {len(results)} questions.")
+                
+                print(f"-> Found checkpoint. Resuming... (Skipping {len(df_done) - len(results)} failed 'A' answers)")
         except Exception as e:
             print(f"-> Warning: Could not read checkpoint ({e}). Starting fresh.")
 
